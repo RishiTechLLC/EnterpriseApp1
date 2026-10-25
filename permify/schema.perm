@@ -1,0 +1,50 @@
+// Permify authorization model for the School Calendar application.
+//
+//   organization (district)
+//     └─ school           admin / staff / viewer
+//          └─ program     coordinator
+//               └─ calendar   is_published (ABAC)
+//
+// Permissions flow down the hierarchy: a district admin manages every school,
+// a school admin manages every program and calendar in that school, and a
+// program coordinator edits that program's calendars.
+
+entity user {}
+
+entity organization {
+    relation admin @user
+
+    permission create_school = admin
+}
+
+entity school {
+    relation org @organization
+    relation admin @user
+    relation staff @user
+    relation viewer @user
+
+    permission manage = admin or org.admin
+    permission edit   = manage
+    permission view   = manage or staff or viewer
+}
+
+entity program {
+    relation school @school
+    relation coordinator @user
+
+    permission manage = school.manage
+    permission edit   = manage or coordinator
+    permission view   = edit or school.view
+}
+
+entity calendar {
+    relation program @program
+
+    attribute is_published boolean
+
+    permission edit    = program.edit
+    permission publish = program.manage
+    permission delete  = program.manage
+    // Draft calendars are only visible to people who can edit them.
+    permission view    = edit or (program.view and is_published)
+}

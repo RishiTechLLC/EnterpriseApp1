@@ -1,0 +1,19 @@
+# .NET
+bin/
+obj/
+*.user
+*.db
+*.db-shm
+*.db-wal
+TestResults/
+
+# Angular / Node
+node_modules/
+dist/
+.angular/
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+.DS_Store

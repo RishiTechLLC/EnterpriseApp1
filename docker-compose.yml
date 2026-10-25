@@ -1,0 +1,65 @@
+# Full stack: Angular (nginx) -> .NET API -> Permify (+ Postgres) and Redis.
+#   docker compose up --build
+#   open http://localhost:8080
+services:
+  web:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      # Development enables demo sign-in (/api/auth/dev-token) and seed data. Use Production + Jwt__Authority for real deployments.
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Database: "Data Source=/data/schoolcalendar.db"
+      ConnectionStrings__Redis: "redis:6379"
+      Permify__BaseUrl: "http://permify:3476"
+      Cors__AllowedOrigins__0: "http://localhost:8080"
+    volumes:
+      - api-data:/data
+    depends_on:
+      permify:
+        condition: service_started
+      redis:
+        condition: service_started
+
+  permify:
+    image: ghcr.io/permify/permify:v1.7.5
+    command: serve
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: "postgres://permify:permify@permify-db:5432/permify?sslmode=disable"
+      PERMIFY_DATABASE_AUTO_MIGRATE: "true"
+    ports:
+      - "3476:3476" # REST
+      - "3478:3478" # gRPC
+    depends_on:
+      permify-db:
+        condition: service_healthy
+
+  permify-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: permify
+      POSTGRES_PASSWORD: permify
+      POSTGRES_DB: permify
+    volumes:
+      - permify-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U permify"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  api-data:
+  permify-data:
