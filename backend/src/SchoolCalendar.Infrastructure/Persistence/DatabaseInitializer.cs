@@ -9,7 +9,7 @@ using SchoolCalendar.Infrastructure.Permify;
 namespace SchoolCalendar.Infrastructure.Persistence;
 
 /// <summary>
-/// Runs at startup: writes the Permify schema, creates the database, seeds demo data on first run,
+/// Runs at startup: writes the Permify schema, prepares the database, seeds demo data on first run,
 /// and re-syncs the structural relationships (school→org, program→school, calendar→program) from the database
 /// so a restarted Permify never loses the resource hierarchy.
 /// </summary>
@@ -17,6 +17,7 @@ public sealed class DatabaseInitializer(
     AppDbContext db,
     PermifyClient permify,
     IOptions<PermifyOptions> options,
+    IOptions<DatabaseOptions> databaseOptions,
     ILogger<DatabaseInitializer> logger)
 {
     private readonly PermifyOptions _options = options.Value;
@@ -24,12 +25,29 @@ public sealed class DatabaseInitializer(
     public async Task InitializeAsync(bool seedDemoData, CancellationToken ct = default)
     {
         await WriteSchemaWithRetryAsync(ct);
-        await db.Database.EnsureCreatedAsync(ct);
+        await PrepareDatabaseAsync(ct);
 
         if (seedDemoData && !await db.Schools.AnyAsync(ct))
             await SeedDemoDataAsync(ct);
 
         await SyncHierarchyAsync(ct);
+    }
+
+    private async Task PrepareDatabaseAsync(CancellationToken ct)
+    {
+        if (databaseOptions.Value.Provider == DatabaseProvider.Sqlite)
+        {
+            await db.Database.EnsureCreatedAsync(ct);
+            return;
+        }
+
+        // SQL Server schema is owned by grate; fail fast with a clear message rather than on the first query.
+        var tables = await db.Database
+            .SqlQueryRaw<int>("SELECT COUNT(*) AS Value FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Schools'")
+            .SingleAsync(ct);
+        if (tables == 0)
+            throw new InvalidOperationException(
+                "The database schema has not been created. Run the grate migrations first (see db/README.md).");
     }
 
     private async Task WriteSchemaWithRetryAsync(CancellationToken ct)

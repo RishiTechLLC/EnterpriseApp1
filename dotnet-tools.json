@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "grate": {
+      "version": "2.1.6",
+      "commands": [
+        "grate"
+      ],
+      "rollForward": false
+    }
+  }
+}

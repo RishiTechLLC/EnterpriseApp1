@@ -15,8 +15,18 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // SqlServer: schema is owned by the grate migrations in /db. Sqlite: zero-setup local dev, schema created by EF.
+        services.Configure<DatabaseOptions>(configuration.GetSection(DatabaseOptions.Section));
+        var provider = configuration.GetSection(DatabaseOptions.Section).Get<DatabaseOptions>()?.Provider ?? DatabaseProvider.Sqlite;
+        var connectionString = configuration.GetConnectionString("Database");
         services.AddDbContext<AppDbContext>(o =>
-            o.UseSqlite(configuration.GetConnectionString("Database") ?? "Data Source=schoolcalendar.db"));
+        {
+            if (provider == DatabaseProvider.SqlServer)
+                o.UseSqlServer(connectionString ?? throw new InvalidOperationException("ConnectionStrings:Database is required for SQL Server."),
+                    sql => sql.EnableRetryOnFailure());
+            else
+                o.UseSqlite(connectionString ?? "Data Source=schoolcalendar.db");
+        });
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<DatabaseInitializer>();
 

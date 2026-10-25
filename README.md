@@ -6,7 +6,8 @@ Manage academic calendars for schools, where **each school runs separate calenda
 | Layer     | Tech |
 |-----------|------|
 | Frontend  | Angular 21 (standalone components, signals, lazy routes) |
-| Backend   | .NET 10 Web API, **CQRS** with MediatR + FluentValidation, EF Core (SQLite) |
+| Backend   | .NET 10 Web API, **CQRS** with MediatR + FluentValidation, EF Core |
+| Database  | SQL Server / Azure SQL, schema managed by **[grate](https://erikbra.github.io/grate/)** migrations in `db/` (SQLite for zero-setup local runs) |
 | AuthZ     | **[Permify](https://permify.co)**: every API call is checked (ReBAC + ABAC) |
 | Caching   | Tag-invalidated cache on `IDistributedCache`: **Redis** when configured, in-memory otherwise |
 
@@ -23,7 +24,7 @@ School ─┬─ Program (Elementary)  ─── Calendar 2026-2027 ─── Ev
 docker compose up --build
 # http://localhost:8080 → pick a demo user
 ```
-This starts Angular (nginx), the API, Permify (with Postgres), and Redis.
+This starts Angular (nginx), the API, SQL Server (migrated by grate before the API starts), Permify (with Postgres), and Redis.
 
 ### Local development
 ```bash
@@ -38,9 +39,16 @@ cd frontend && npm install && npm start
 ```
 Optional: `ConnectionStrings__Redis=localhost:6379` makes the API cache in Redis.
 
+To use SQL Server instead of SQLite, see **[db/README.md](db/README.md)**:
+```bash
+dotnet tool restore && ./db/grate.sh migrate     # or: ./db/grate.sh watch  (re-runs on every .sql change)
+Database__Provider=SqlServer ConnectionStrings__Database="Server=localhost,1433;Database=SchoolCalendar;User Id=sa;Password=Local_Dev_Passw0rd!;TrustServerCertificate=True" \
+  dotnet run --project backend/src/SchoolCalendar.Api --launch-profile http
+```
+
 ### Tests
 ```bash
-cd backend && dotnet test          # behaviors, caching, domain rules
+cd backend && dotnet test          # behaviors, caching, domain rules, SQL scripts vs EF model
 cd frontend && npx ng test --watch=false
 ```
 
@@ -66,6 +74,7 @@ backend/src
 │   └── Common/Behaviors           Pipeline: Validation → Authorization (Permify) → Caching → Handler
 ├── SchoolCalendar.Infrastructure  EF Core, PermifyClient (REST), DistributedCacheService, startup seeding/sync
 └── SchoolCalendar.Api             Thin controllers → ISender, JWT auth, ProblemDetails error mapping
+db/sql                             grate migrations: up (tables), functions, views, sprocs, permissions
 permify/schema.perm                Authorization model
 frontend/src/app                   core/ (api, auth, models) · features/ (pages) · shared/ (forms, modal, members)
 ```
@@ -135,4 +144,4 @@ so cached data is only returned to callers Permify has just allowed.
 - Set `Jwt:Authority`/`Jwt:Audience` to your identity provider (Entra ID, Auth0, Keycloak). Dev tokens are then disabled.
   The JWT `sub` must match the user ids used in Permify relationships.
 - Run Permify with Postgres and set `Permify:ApiKey` if Permify authn is enabled.
-- Replace `EnsureCreated` with EF Core migrations and SQLite with SQL Server/Postgres for multi-instance deployments.
+- Use `Database:Provider=SqlServer` (Azure SQL) and run `db/grate.sh migrate` in your deployment pipeline (see `.github/workflows/database.yml`).

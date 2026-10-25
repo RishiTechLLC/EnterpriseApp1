@@ -1,0 +1,73 @@
+# Database migrations with grate.
+#  - Pull requests touching db/ or the backend: run every script against a throwaway SQL Server, run them again to
+#    prove they are re-runnable, and run the schema/EF consistency tests.
+#  - Pushes to main that change db/sql: apply the changed scripts to the target database (grate skips everything
+#    that already ran, re-runs changed views/functions/procedures, and fails if a one-time script was edited).
+name: Database
+
+on:
+  pull_request:
+    paths: ["db/**", "backend/**", "dotnet-tools.json", ".github/workflows/database.yml"]
+  push:
+    branches: [main]
+    paths: ["db/sql/**"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "GitHub environment to migrate (holds the DB_CONNECTION secret)"
+        default: production
+        required: true
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Ci_Passw0rd!123"
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Ci_Passw0rd!123' -C -Q 'SELECT 1'"
+          --health-interval 5s --health-retries 20
+    env:
+      DB_CONNECTION: "Server=localhost,1433;Database=SchoolCalendar;User Id=sa;Password=Ci_Passw0rd!123;TrustServerCertificate=True"
+      DB_ENV: CI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet tool restore
+      - name: Migrate a fresh database
+        run: ./db/grate.sh migrate
+      - name: Migrate again (scripts must be re-runnable)
+        run: ./db/grate.sh migrate
+      - name: Database reports up to date
+        run: ./db/grate.sh status
+      - name: Schema matches the EF Core model
+        run: dotnet test backend --filter "FullyQualifiedName~DatabaseScriptTests"
+
+  migrate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Configure required reviewers on the environment to get an approval gate before production changes.
+    environment: ${{ inputs.environment || 'production' }}
+    concurrency: database-${{ inputs.environment || 'production' }}
+    env:
+      DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+      DB_ENV: ${{ inputs.environment || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet tool restore
+      - name: Preview
+        run: ./db/grate.sh dryrun
+      - name: Migrate
+        run: ./db/grate.sh migrate
+      - name: Verify
+        run: ./db/grate.sh status
